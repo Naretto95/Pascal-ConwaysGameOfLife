@@ -1,2 +1,2 @@
-# PascalProject-Conway-s-Game-Of-Life
+# PascalProject-Conway'sGameOfLife
 Conway's Game Of Life made with Pascal.
