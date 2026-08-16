@@ -1,221 +1,326 @@
-﻿PROGRAM seconde_partie;
+{
+  Game of Life - an energy/age driven cellular automaton
+  --------------------------------------------------------
+  Each cell of a toroidal N x N grid holds a bit of "grass" that can be
+  alive or dead. A living cell ages every generation and dies of old age
+  once it passes MAX_AGE. While alive it accumulates energy each turn;
+  once its energy exceeds REPRODUCTION_ENERGY it spends REPRODUCTION_COST
+  energy to spawn new grass on every dead cell in its Moore neighborhood.
 
-{Constantes demandées par le sujet}
-CONST
-	N=20;
-	M=N*N+1;                              {On ajoute 1 pour simplifier et accélerer le traitement des données en entrée}
-	ENERGIE=4;
-	AGE_MORT=5;
-	ENERGIE_REPRODUCTION=10;
-	ENERGIE_INITIALE=1;
-	
-{Types demandés par le sujet}
-TYPE
-	herbe= Record age,energy : integer; vie: boolean; End;
-	position=Record x,y:integer; End;
-	typeGeneration= array[0..N-1,0..N-1] of herbe;
-	typelistePosition=array[0..M-1] of position;
-	typeParametres=Record i,o:string; End;                              {TypeParametres permet de stocker les nom des fichiers associés aux commandes -i et -o}
+  Usage:
+    gameoflife [-i <input file>] [-o <output file>]
 
-{Variables locales}
+    -i  Load the initial live cells from a file previously written by -o,
+        instead of entering them from the keyboard.
+    -o  After the simulation finishes, save the final live cells and the
+        number of generations run to a file.
+}
+program GameOfLife;
+
+{$mode objfpc}{$H+}
+
+uses
+  SysUtils;
+
+const
+  GRID_SIZE           = 20;
+  MAX_CELLS           = GRID_SIZE * GRID_SIZE;
+  ENERGY_GAIN         = 4;
+  MAX_AGE             = 5;
+  REPRODUCTION_ENERGY = 10;
+  REPRODUCTION_COST   = 10;
+  INITIAL_ENERGY      = 1;
+
+type
+  TCell = record
+    Age, Energy: Integer;
+    Alive: Boolean;
+  end;
+
+  TPosition = record
+    X, Y: Integer;
+  end;
+
+  TGrid = array[0..GRID_SIZE - 1, 0..GRID_SIZE - 1] of TCell;
+
+  { Index 0 is repurposed to store how many positions follow, keeping the
+    same fixed-size-array trick as the original assignment. }
+  TPositionList = array[0..MAX_CELLS] of TPosition;
+
+  TArguments = record
+    InputFile, OutputFile: string;
+    HasInput, HasOutput: Boolean;
+  end;
+
+{ Parses "-i <file>" and "-o <file>" command-line switches, in any order. }
+function ParseArguments: TArguments;
 var
-	lipo:typelistePosition;
-	gen:typegeneration;
-	ite:integer;                              {ite sert à stocker le nombre d'itérations souhaitées par l'utilisateur}
-	p:string;                              {p sert à empecher le programe de se fermer une fois terminé}
-	Para:typeParametres;                              {Para permet de stocker les nom des fichiers associés aux commandes -i et -o}
-
-{Fonction servant a placer des célules stockées dans une liste, dans une grille de taille N*N}
-FUNCTION initialiserGeneration(listePositions:typelistePosition):typeGeneration;
-var i,k:integer;sortida:typeGeneration;
-Begin
-	for i:=0 to N-1 do
-		for k:=0 to N-1 do
-			Begin                              {Premièrement on initialise toutes les celules de la grille}
-			sortida[i][k].energy:=0;
-			sortida[i][k].age:=0;
-			sortida[i][k].vie:=False;
-			End;
-	k:=listePositions[0].x;                              {On se sert de listePosition[0].x pour stocker le nombre de célules ayant étées initialisées}
-	for i:= 1 to k do
-		Begin
-		sortida[listePositions[i].y][listePositions[i].x].energy:=ENERGIE_INITIALE;
-		sortida[listePositions[i].y][listePositions[i].x].age:=0;
-		sortida[listePositions[i].y][listePositions[i].x].vie:=True;
-		End;
-   initialiserGeneration:= sortida;                              {On renvoie la grille initialisée}
-End;
-
-{Cette Fonction Permet dans le cas ou l'utilisateur ne désire pas charger de fichier de sauvegarde d'initialiser manuelement la grille}
-FUNCTION entreclavier:typelisteposition;
-var i,j:integer;sortie:typelistePosition;k:boolean;
-Begin
-	k:=true;
-	write('Combien de cellules initiales souhaitez vous ?');writeln;
-	write('saisissez un nombre inférieur à ', M-1);writeln;
-	while k=true do Begin
-		readln(j);
-		if j<M then                              {Cette condition verifie si l'utilisateur à entré une valeure infèrieure a M-1}
-			k:=false;
-		End;
-	sortie[0].x:=j;
-	for i:= 1 to j do Begin
-		writeln('Saisissez l''abscisse de l''herbe numero ',i);
-		readln(sortie[i].x);
-		 sortie[i].x:=sortie[i].x mod N;                              {Cette ligne là ainsi que la suivant permettent de saisir n'importe quel nombre positif ou négatif (vu qu'il s'agit d'une grille torique)}
-        if sortie[i].x <0 then sortie[i].x:=sortie[i].x+N;	
-		writeln('Saisissez l''ordonée de l''herbe numero ',i);
-		readln(sortie[i].y);
-		sortie[i].y:=sortie[i].y mod N;                              {même chose}
-        if sortie[i].y <0 then sortie[i].y:=sortie[i].y+N;	
-		writeln('Il vous reste ',j-i,' valeures à saisir (',(j-i)*2 ,' entrées clavier)');
-		End;
-	entreclavier:=sortie;
-End;
-
-{Cette fonction affiche l'état actuel d'une génération}
-Function afficherGeneration(generation:typeGeneration):typeGeneration;
-var i,j:integer; 
+  I: Integer;
+  Args: TArguments;
 begin
-	i:=0;
-	j:=0;
-	for i:=0 to N-1 do
-		Begin
-		for j:=0 to N-1 do	
-			if generation[i,j].vie=true then
-				write(' h')
-			else
-				write(' .');
-		writeln;
-		End;
-	afficherGeneration:=generation;
-End;
+  Args.HasInput := False;
+  Args.HasOutput := False;
 
-{Cette fontion teste si les cellules voisines à celle dont les coordonées sont entrées en parametre sont vivantes, si oui elle les initialise}
-Function calcemptycels(x,y:integer;generation:typeGeneration):typeGeneration;
-var i,j,k,l,m:integer;gen1:typeGeneration;
-Begin
-	gen1:=generation; m:=0;
-    for i :=-1 to 1 do
-        Begin
-        k:=(x+i) mod N;
-        if k <0 then k:=k+N;	
-        for j:=-1 to 1 do
-            Begin
-                l:=(y+j) mod N;
-                if l <0 then l:=l+N;	
-                if generation[k][l].vie=False then Begin
-                    gen1[k][l].vie:=True; gen1[k][l].energy:=ENERGIE_INITIALE;gen1[k][l].age:=0;m+=1;End;
-            End;
-    End;
-        if m>0 then gen1[y][x].energy-=10;
-        calcemptycels:=gen1;
-End;
+  I := 1;
+  while I <= ParamCount do
+  begin
+    if (ParamStr(I) = '-i') and (I < ParamCount) then
+    begin
+      Args.InputFile := ParamStr(I + 1);
+      Args.HasInput := True;
+      Inc(I, 2);
+    end
+    else if (ParamStr(I) = '-o') and (I < ParamCount) then
+    begin
+      Args.OutputFile := ParamStr(I + 1);
+      Args.HasOutput := True;
+      Inc(I, 2);
+    end
+    else
+      Inc(I);
+  end;
 
-{Cette fonction execute le jeu de la vie un certain nombre de fois}
-Function runGeneration(generation:typeGeneration;nombreIteration:integer):typeGeneration;
-var t,i,j,k:integer;gen1,gen2:typeGeneration;
-Begin
-	gen1:=generation; gen2:=generation;
-	for t:=0 to nombreIteration-1 do
-        Begin for i:=0 to N-1 do
-            Begin for j:=0 to N-1 do Begin
-                	If gen1[i][j].vie=True then
-                        Begin
-                        if gen1[i][j].age<5 then gen2[i][j].age+=1 else gen2[i][j].vie:=False;
-                        if gen1[i][j].energy>10 then gen2:=calcemptycels(i,j,gen2) else gen2[i][j].energy+=ENERGIE;                              {si l'herbe a plus de 10 d'énergie on execute la fonction calcemptycels}
-                        End;End;End;
-                        gen1:=gen2 ;
-                        write('Itération n°',t+1);writeln;
-                        afficherGeneration(gen1);
-                        End;
-                        runGeneration:=gen1;
-End;
+  Result := Args;
+end;
 
-{Cette fonction enregistre dans un fichier texte les valeures des variables de l'utilisateur avec les critères esthétiques demandés}
-Function sauvegarde(generation:typeGeneration;fichier:string;iterations:integer):string;
-var i,j,l:integer;f: text;k:string;
-Begin
-	l:=0;
-	assign(f,fichier);
-    rewrite(f);
-    write(f,'ViePosition = [');
-	for i:=0 to N-1 do
-        for j:=0 to N-1 do
-            if generation[j][i].vie=True then begin
-            	if l>0 then write(f,' '); l+=1; 
-                write(f,'('); str(j,k); write(f,k); write(f,',');
-                str(i,k); write(f,k); write(f,')'); end;
-    write(f,']NombreGeneration = ');
-    str(iterations,k); write(f,k);
-    close(f);
-End;
+{ Builds a grid from a list of initial live-cell positions.
+  Positions[0].X stores how many entries follow. }
+function CreateGrid(const Positions: TPositionList): TGrid;
+var
+  Row, Col, Count, I: Integer;
+  Grid: TGrid;
+begin
+  for Row := 0 to GRID_SIZE - 1 do
+    for Col := 0 to GRID_SIZE - 1 do
+    begin
+      Grid[Row][Col].Age := 0;
+      Grid[Row][Col].Energy := 0;
+      Grid[Row][Col].Alive := False;
+    end;
 
-{Cette fonction détermine les différents arguments et les ordonne, c'est aussi la fonction qui permet la non positionalitée des arguments}
-Function TriParametres:typeParametres;
-var i:integer; typa1:typeParametres; j,k:boolean;
-Begin;
-j:=False; k:=False;
-if ParamCount>0 then Begin
-    for i:=1 to ParamCount do
-        if ParamStr (i)='-i' then Begin typa1.i:=ParamStr (i+1);k:=True End 
-        else 
-            if ParamStr (i)='-o' then Begin typa1.o:=ParamStr (i+1);j:=True End;
-    End;
-if j=False then typa1.o:='0'; 
-if k=False then typa1.i:='0';
- TriParametres:=typa1;
-End;
+  Count := Positions[0].X;
+  for I := 1 to Count do
+    with Grid[Positions[I].Y][Positions[I].X] do
+    begin
+      Energy := INITIAL_ENERGY;
+      Age := 0;
+      Alive := True;
+    end;
 
-{Cette fonction est censée "charger" les valeures sauvegardées dans le fichier mentioné après le -i}
-{Toutefois cette fonction ne s'execute pas corectement et place aléatoirement les éléments}
-{ si elle est quand même présente c'est que sa présence est nescessaire pour démontrer le bon fonctionement des autres fonctions}
-Function chargement(NomFichier:string):typelistePosition;
-var fichier:text; c,d:char; i,j,m:integer;lipo1:typelistePosition; s:string;
-Begin
-	assign(fichier,NomFichier); reset(fichier); m:=0;
-	while not eof (fichier) do begin
-		while not eoln (fichier) do begin 
-			read (fichier,c);
-			if c='[' then begin
-				repeat begin
-                    read(fichier,c); read(fichier,c); read(fichier,d);
-                    if d<>',' then begin
-                        s:=c+d; val(s,i); read(fichier,c); read(fichier,c); read(fichier,d);
-                        if d<>')' then begin 
-                            s:=c+d; val(s,j); read(fichier,c); read(fichier,c) end
-                        else begin 
-                        	s:=c; val(s,j); read(fichier,c) end;end
-                    else begin
-                        s:=c; val(s,i); read(fichier,c); read(fichier,c);
-                        if d<>')' then begin
-                            s:=c+d; val(s,j); read(fichier,c); read(fichier,c) end
-                        else begin 
-                        	s:=c; val(s,j); read(fichier,c) end;
-                    end; m+=1; lipo1[m].x:=i; lipo1[m].y:=j; end; 
-                until c=']';
-        lipo1[0].x:=m; end; end; end; s:=c; val(s,m); lipo1[0].y:=m; close (fichier); chargement:=lipo1;
-End;
+  Result := Grid;
+end;
 
-BEGIN
-para:=TriParametres;
-if para.i='0' then Begin                              {Test si des arguments d'entrée ont été saisis}
-	{si non}
-	lipo:=entreclavier;
-	gen:=initialiserGeneration(lipo); End
-else Begin
-	{si oui}
-    lipo:=chargement(para.i);
-    gen:=initialiserGeneration(lipo); End;
-    
-gen:=afficherGeneration(gen);
+{ Prompts the user to type initial live-cell coordinates on the torus grid;
+  negative or out-of-range coordinates wrap around. }
+function ReadPositionsFromKeyboard: TPositionList;
+var
+  Count, I: Integer;
+  Positions: TPositionList;
+begin
+  WriteLn('How many live cells do you want to start with?');
+  WriteLn('Enter a number no greater than ', MAX_CELLS, ':');
+  repeat
+    ReadLn(Count);
+  until (Count >= 0) and (Count <= MAX_CELLS);
 
-write('Combien d''itérations souhaitez vous ?');
-read(ite);
+  Positions[0].X := Count;
+  for I := 1 to Count do
+  begin
+    WriteLn('Cell ', I, ' - X coordinate:');
+    ReadLn(Positions[I].X);
+    Positions[I].X := ((Positions[I].X mod GRID_SIZE) + GRID_SIZE) mod GRID_SIZE;
 
-if ite>0 then begin
-    gen:=runGeneration(gen,ite);
-    if para.o<>'0' then sauvegarde(gen,para.o,ite); end;                              {Test si des arguments de sortie ont été saisis}
-    
-read(p);
-END.
+    WriteLn('Cell ', I, ' - Y coordinate:');
+    ReadLn(Positions[I].Y);
+    Positions[I].Y := ((Positions[I].Y mod GRID_SIZE) + GRID_SIZE) mod GRID_SIZE;
+
+    WriteLn(Count - I, ' cell(s) left to enter.');
+  end;
+
+  Result := Positions;
+end;
+
+{ Loads a position list previously written by SavePositions. }
+function LoadPositions(const FileName: string): TPositionList;
+var
+  F: TextFile;
+  Line, Content, Token: string;
+  OpenPos, ClosePos, CommaPos, Count: Integer;
+  Positions: TPositionList;
+begin
+  AssignFile(F, FileName);
+  Reset(F);
+  Content := '';
+  while not Eof(F) do
+  begin
+    ReadLn(F, Line);
+    Content := Content + Line;
+  end;
+  CloseFile(F);
+
+  OpenPos := Pos('[', Content) + 1;
+  ClosePos := Pos(']', Content) - 1;
+  Content := Copy(Content, OpenPos, ClosePos - OpenPos + 1);
+
+  Count := 0;
+  while Pos('(', Content) > 0 do
+  begin
+    OpenPos := Pos('(', Content) + 1;
+    ClosePos := Pos(')', Content);
+    Token := Copy(Content, OpenPos, ClosePos - OpenPos);
+    CommaPos := Pos(',', Token);
+
+    Inc(Count);
+    Positions[Count].X := StrToInt(Copy(Token, 1, CommaPos - 1));
+    Positions[Count].Y := StrToInt(Copy(Token, CommaPos + 1, Length(Token)));
+
+    Delete(Content, 1, ClosePos);
+  end;
+
+  Positions[0].X := Count;
+  Result := Positions;
+end;
+
+{ Saves the live cells and the iteration count to a text file, using the
+  format LoadPositions expects: "ViePosition = [(x,y) (x,y) ...]" followed
+  by "NombreGeneration = n". }
+procedure SavePositions(const Grid: TGrid; Iterations: Integer; const FileName: string);
+var
+  F: TextFile;
+  Row, Col: Integer;
+  First: Boolean;
+begin
+  AssignFile(F, FileName);
+  Rewrite(F);
+  First := True;
+
+  Write(F, 'ViePosition = [');
+  for Row := 0 to GRID_SIZE - 1 do
+    for Col := 0 to GRID_SIZE - 1 do
+      if Grid[Row][Col].Alive then
+      begin
+        if not First then
+          Write(F, ' ');
+        First := False;
+        Write(F, '(', Col, ',', Row, ')');
+      end;
+  WriteLn(F, ']');
+  WriteLn(F, 'NombreGeneration = ', Iterations);
+
+  CloseFile(F);
+end;
+
+{ Renders the grid to the console: 'h' for a live cell, '.' for a dead one. }
+procedure PrintGrid(const Grid: TGrid);
+var
+  Row, Col: Integer;
+begin
+  for Row := 0 to GRID_SIZE - 1 do
+  begin
+    for Col := 0 to GRID_SIZE - 1 do
+      if Grid[Row][Col].Alive then
+        Write(' h')
+      else
+        Write(' .');
+    WriteLn;
+  end;
+end;
+
+{ Wakes up the dead neighbors of (Row, Col) in its Moore neighborhood on the
+  torus grid, and charges the source cell REPRODUCTION_COST energy if at
+  least one neighbor was spawned. }
+procedure SpreadToNeighbors(Row, Col: Integer; var Grid: TGrid);
+var
+  DR, DC, NR, NC, Spawned: Integer;
+begin
+  Spawned := 0;
+  for DR := -1 to 1 do
+    for DC := -1 to 1 do
+    begin
+      NR := ((Row + DR) mod GRID_SIZE + GRID_SIZE) mod GRID_SIZE;
+      NC := ((Col + DC) mod GRID_SIZE + GRID_SIZE) mod GRID_SIZE;
+      if not Grid[NR][NC].Alive then
+      begin
+        Grid[NR][NC].Alive := True;
+        Grid[NR][NC].Energy := INITIAL_ENERGY;
+        Grid[NR][NC].Age := 0;
+        Inc(Spawned);
+      end;
+    end;
+
+  if Spawned > 0 then
+    Dec(Grid[Row][Col].Energy, REPRODUCTION_COST);
+end;
+
+{ Advances the whole grid by one generation: aging cells that get too old
+  die, well-fed cells reproduce into their neighborhood, the rest just
+  gain energy. Reproduction reads neighbor state from the grid as it is
+  being built, so cells processed earlier in the pass can influence ones
+  processed later within the same generation. }
+procedure StepGeneration(var Grid: TGrid);
+var
+  Row, Col: Integer;
+  Previous: TGrid;
+begin
+  Previous := Grid;
+  for Row := 0 to GRID_SIZE - 1 do
+    for Col := 0 to GRID_SIZE - 1 do
+      if Previous[Row][Col].Alive then
+      begin
+        if Previous[Row][Col].Age < MAX_AGE then
+          Inc(Grid[Row][Col].Age)
+        else
+          Grid[Row][Col].Alive := False;
+
+        if Previous[Row][Col].Energy > REPRODUCTION_ENERGY then
+          SpreadToNeighbors(Row, Col, Grid)
+        else
+          Inc(Grid[Row][Col].Energy, ENERGY_GAIN);
+      end;
+end;
+
+{ Runs the simulation for the given number of generations, printing the
+  grid after each step. }
+procedure RunSimulation(var Grid: TGrid; Iterations: Integer);
+var
+  I: Integer;
+begin
+  for I := 1 to Iterations do
+  begin
+    StepGeneration(Grid);
+    WriteLn('Generation #', I);
+    PrintGrid(Grid);
+  end;
+end;
+
+var
+  Grid: TGrid;
+  Positions: TPositionList;
+  Args: TArguments;
+  Iterations: Integer;
+  Dummy: string;
+
+begin
+  Args := ParseArguments;
+
+  if Args.HasInput then
+    Positions := LoadPositions(Args.InputFile)
+  else
+    Positions := ReadPositionsFromKeyboard;
+
+  Grid := CreateGrid(Positions);
+  PrintGrid(Grid);
+
+  Write('How many generations do you want to run? ');
+  ReadLn(Iterations);
+
+  if Iterations > 0 then
+  begin
+    RunSimulation(Grid, Iterations);
+    if Args.HasOutput then
+      SavePositions(Grid, Iterations, Args.OutputFile);
+  end;
+
+  Write('Press Enter to exit...');
+  ReadLn(Dummy);
+end.

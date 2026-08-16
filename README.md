@@ -1,17 +1,57 @@
-# Pascal-ConwaysGameOfLife
+# Pascal Game of Life
 
-This repository contains an implementation of Conway's Game of Life, a cellular automaton simulation, written in Pascal. The simulation takes place on a two-dimensional grid of cells, each of which can be in one of two states: alive or dead. The state of each cell is determined by the states of its neighbors, according to a set of rules.
+An energy- and age-driven cellular automaton written in Object Pascal, inspired by Conway's Game of Life. It runs on a 20x20 toroidal grid (edges wrap around) and simulates patches of "grass" that grow, age, and reproduce based on a small energy budget rather than the classic birth/survival neighbor-count rules.
 
-## How to Use
-1. Clone the repository to your local machine
-2. Open the project in your preferred Pascal IDE (e.g. Lazarus)
-3. Build and run the program
+Originally written as a school assignment in French; this version has been rewritten with clear English naming, a proper CLI argument parser, and a working save/load format.
 
-## Rules of the Game
-1. Any live cell with fewer than two live neighbors dies, as if by underpopulation.
-2. Any live cell with two or three live neighbors lives on to the next generation.
-3. Any live cell with more than three live neighbors dies, as if by overpopulation.
-4. Any dead cell with exactly three live neighbors becomes a live cell, as if by reproduction.
+## Simulation rules
+
+Each cell holds an age, an energy level, and a life state. Every generation:
+
+1. A living cell older than `MAX_AGE` (5) dies; otherwise it ages by one.
+2. If its energy is above `REPRODUCTION_ENERGY` (10), it spends `REPRODUCTION_COST` (10) energy to spawn new cells on every dead cell in its 3x3 neighborhood (Moore neighborhood, wrapping around the grid edges).
+3. Otherwise, it gains `ENERGY_GAIN` (4) energy for the next generation.
+
+New cells start with `INITIAL_ENERGY` (1) energy and age 0.
+
+## Requirements
+
+- [Free Pascal](https://www.freepascal.org/) (`fpc`) or [Lazarus](https://www.lazarus-ide.org/)
+
+## Building and running
+
+```bash
+fpc gameoflife.pas
+./gameoflife
+```
+
+Or open `gameoflife.pas` in Lazarus and run it directly.
+
+You'll be prompted for the number of starting cells and their coordinates, then for how many generations to simulate. The grid is printed after every generation (`h` = alive, `.` = dead).
+
+## Command-line options
+
+```
+gameoflife [-i <input file>] [-o <output file>]
+```
+
+- `-i <file>` — load the starting cells from a file instead of typing them in.
+- `-o <file>` — save the final state and generation count to a file once the simulation finishes.
+
+Saved files can be reused as input for a later run, e.g.:
+
+```bash
+./gameoflife -o save.txt
+./gameoflife -i save.txt
+```
+
+### Save file format
+
+```
+ViePosition = [(x,y) (x,y) ...]
+NombreGeneration = <n>
+```
 
 ## License
+
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
